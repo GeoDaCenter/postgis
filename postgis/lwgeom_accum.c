@@ -51,6 +51,7 @@ Datum pgis_geometry_clusterintersecting_finalfn(PG_FUNCTION_ARGS);
 Datum pgis_geometry_clusterwithin_finalfn(PG_FUNCTION_ARGS);
 Datum pgis_abs_in(PG_FUNCTION_ARGS);
 Datum pgis_abs_out(PG_FUNCTION_ARGS);
+Datum pgis_geometry_createweights_finalfn(PG_FUNCTION_ARGS);
 
 /* External prototypes */
 Datum pgis_union_geometry_array(PG_FUNCTION_ARGS);
@@ -59,6 +60,7 @@ Datum polygonize_garray(PG_FUNCTION_ARGS);
 Datum clusterintersecting_garray(PG_FUNCTION_ARGS);
 Datum cluster_within_distance_garray(PG_FUNCTION_ARGS);
 Datum LWGEOM_makeline_garray(PG_FUNCTION_ARGS);
+Datum create_weights_garray(PG_FUNCTION_ARGS);
 
 
 /** @file
@@ -370,6 +372,37 @@ pgis_geometry_clusterwithin_finalfn(PG_FUNCTION_ARGS)
 
 	geometry_array = pgis_accum_finalfn(p, CurrentMemoryContext, fcinfo);
 	result = PGISDirectFunctionCall2( cluster_within_distance_garray, geometry_array, p->data);
+	if (!result)
+		PG_RETURN_NULL();
+
+	PG_RETURN_DATUM(result);
+}
+
+/**
+ * The "pgis_geometry_createweights_finalfn" final function passes the geometry[] to a
+ * clustering function before returning the result.
+*/
+PG_FUNCTION_INFO_V1(pgis_geometry_createweights_finalfn);
+Datum
+pgis_geometry_createweights_finalfn(PG_FUNCTION_ARGS)
+{
+	pgis_abs *p;
+	Datum result = 0;
+	Datum geometry_array = 0;
+
+	if (PG_ARGISNULL(0))
+		PG_RETURN_NULL();
+
+	p = (pgis_abs*) PG_GETARG_POINTER(0);
+
+	if (!p->data)
+	{
+		elog(ERROR, "Tolerance not defined");
+		PG_RETURN_NULL();
+	}
+
+	geometry_array = pgis_accum_finalfn(p, CurrentMemoryContext, fcinfo);
+	result = PGISDirectFunctionCall2( create_weights_garray, geometry_array, p->data);
 	if (!result)
 		PG_RETURN_NULL();
 

@@ -22,6 +22,7 @@
  *
  **********************************************************************/
 
+
 #include <string.h>
 #include "liblwgeom.h"
 #include "liblwgeom_internal.h"
@@ -75,7 +76,7 @@ geos_envelope_surrogate(const LWGEOM* g)
 	}
 }
 
-/** Make a GEOSSTRtree that stores a pointer to a variable containing 
+/** Make a GEOSSTRtree that stores a pointer to a variable containing
  *  the array index of the input geoms */
 static struct STRTree
 make_strtree(void** geoms, uint32_t num_geoms, char is_lwgeom)
@@ -580,4 +581,115 @@ combine_geometries(UNIONFIND* uf, void** geoms, uint32_t num_geoms, void*** clus
 	lwfree(ordered_components);
 
 	return LW_SUCCESS;
+}
+
+/**  create weights using threshold
+*/
+int
+create_weights_threshold(LWGEOM** geoms, uint32_t num_geoms, double threshold, uint32_t** result_ids, uint32_t** result_nbrs, double**  result_dist)
+{
+	uint32_t p, i;
+	struct STRTree tree;
+	struct QueryContext cxt =
+	{
+		.items_found = NULL,
+		.num_items_found = 0,
+		.items_found_size = 0
+	};
+	int success = LW_SUCCESS;
+
+	if (num_geoms <= 1)
+		return LW_SUCCESS;
+
+	tree = make_strtree((void**) geoms, num_geoms, LW_TRUE);
+	if (tree.tree == NULL)
+	{
+		destroy_strtree(&tree);
+		return LW_FAILURE;
+	}
+
+	int result_size = 0;
+
+	for (p = 0; p < num_geoms; p++)
+	{
+		if (lwgeom_is_empty(geoms[p]))
+			continue;
+
+		cxt.num_items_found = 0;
+		GEOSGeometry* query_envelope;
+		if (geoms[p]->type == POINTTYPE)
+		{
+			const POINT2D* pt = getPoint2d_cp(lwgeom_as_lwpoint(geoms[p])->point, 0);
+			query_envelope = make_geos_segment( pt->x - threshold, pt->y - threshold, pt->x + threshold, pt->y + threshold );
+		} else {
+			const GBOX* box = lwgeom_get_bbox(geoms[p]);
+			query_envelope = make_geos_segment( box->xmin - threshold, box->ymin - threshold, box->xmax + threshold, box->ymax + threshold );
+		}
+		if (!query_envelope)
+		{
+			continue;
+		}
+		GEOSSTRtree_query(tree.tree, query_envelope, &query_accumulate, &cxt);
+		GEOSGeom_destroy(query_envelope);
+
+		if (cxt.num_items_found == 0)
+		{
+			continue;
+		}
+
+		uint32_t* tmp_ids = lwalloc( cxt.num_items_found * sizeof(uint32_t));
+		uint32_t* tmp_nbrs = lwalloc( cxt.num_items_found * sizeof(uint32_t));
+		double* tmp_dist = lwalloc( cxt.num_items_found * sizeof(double));
+
+		uint32_t valid_size = 0;
+
+		for (i = 0; i < cxt.num_items_found; i++)
+		{
+			uint32_t q = *((uint32_t*) cxt.items_found[i]);
+
+			if (p == q)
+				continue;
+
+			double mindist = 0.0;
+			mindist = lwgeom_mindistance2d_tolerance(geoms[p], geoms[q], 0.0);
+			if (mindist == FLT_MAX)
+			{
+				success = LW_FAILURE;
+				break;
+			}
+			if (mindist <= threshold)
+			{
+				// p and q are neighbors now, distance = mindist
+				tmp_ids[valid_size] = p;
+				tmp_nbrs[valid_size] = q;
+				tmp_dist[valid_size++] = mindist;
+			}
+		}
+
+		uint32_t new_size = result_size + valid_size;
+		*result_ids = lwrealloc( *result_ids, new_size * sizeof(uint32_t));
+		*result_nbrs = lwrealloc( *result_nbrs, new_size * sizeof(uint32_t));
+		*result_dist = lwrealloc( *result_dist, new_size * sizeof(double));
+
+		uint32_t j;
+		for (j=0; j< valid_size; j++)
+		{
+			(*result_ids)[result_size+j] = tmp_ids[j];
+			(*result_nbrs)[result_size+j] = tmp_nbrs[j];
+			(*result_dist)[result_size+j] = tmp_dist[j];
+		}
+		result_size += valid_size;
+
+		lwfree(tmp_ids);
+		lwfree(tmp_nbrs);
+		lwfree(tmp_dist);
+
+  }
+
+	if (cxt.items_found)
+		lwfree(cxt.items_found);
+
+	destroy_strtree(&tree);
+
+	return result_size;
 }

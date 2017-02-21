@@ -47,10 +47,11 @@ GEOSGeometry * make_geos_segment(double x1, double y1, double x2, double y2);
 int cluster_intersecting(GEOSGeometry** geoms, uint32_t num_geoms, GEOSGeometry*** clusterGeoms, uint32_t* num_clusters);
 int cluster_within_distance(LWGEOM** geoms, uint32_t num_geoms, double tolerance, LWGEOM*** clusterGeoms, uint32_t* num_clusters);
 int union_dbscan(LWGEOM** geoms, uint32_t num_geoms, UNIONFIND* uf, double eps, uint32_t min_points, char** is_in_cluster_ret);
+int create_weights_threshold(LWGEOM** geoms, uint32_t num_geoms, double threshold, uint32_t** result_ids, uint32_t** result_nbrs, double** result_dist);
+
 
 POINTARRAY *ptarray_from_GEOSCoordSeq(const GEOSCoordSequence *cs, char want3d);
 
 
 extern char lwgeom_geos_errmsg[];
 extern void lwgeom_geos_error(const char *fmt, ...);
-

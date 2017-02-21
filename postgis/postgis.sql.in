@@ -1713,6 +1713,12 @@ CREATE OR REPLACE FUNCTION ST_ClusterWithin(geometry[], float8)
     AS 'MODULE_PATHNAME',  'cluster_within_distance_garray'
     LANGUAGE 'c' IMMUTABLE STRICT _PARALLEL;
 
+-- Availability: 2.5
+CREATE OR REPLACE FUNCTION ST_CreateWeights(geometry[], float8)
+    RETURNS float8[]
+    AS 'MODULE_PATHNAME', 'create_weights_garray'
+    LANGUAGE 'c' IMMUTABLE STRICT _PARALLEL;
+
 -- Availability: 2.3
 CREATE OR REPLACE FUNCTION ST_ClusterDBSCAN (geometry, eps float8, minpoints int)
 	RETURNS int
@@ -3887,6 +3893,12 @@ CREATE OR REPLACE FUNCTION pgis_geometry_clusterwithin_finalfn(pgis_abs)
 	AS 'MODULE_PATHNAME'
 	LANGUAGE 'c';
 
+-- Availability: 2.2
+CREATE OR REPLACE FUNCTION pgis_geometry_createweights_finalfn(pgis_abs)
+	RETURNS geometry[]
+	AS 'MODULE_PATHNAME'
+	LANGUAGE 'c';
+
 -- Availability: 1.4.0
 CREATE OR REPLACE FUNCTION pgis_geometry_makeline_finalfn(pgis_abs)
 	RETURNS geometry
@@ -3936,6 +3948,13 @@ CREATE AGGREGATE ST_ClusterWithin (geometry, float8) (
 	SFUNC = pgis_geometry_accum_transfn,
 	STYPE = pgis_abs,
 	FINALFUNC = pgis_geometry_clusterwithin_finalfn
+	);
+
+-- Availability: 2.2
+CREATE AGGREGATE ST_CreateWeights (geometry, float8) (
+	SFUNC = pgis_geometry_accum_transfn,
+	STYPE = pgis_abs,
+	FINALFUNC = pgis_geometry_createweights_finalfn
 	);
 
 -- Availability: 1.2.2

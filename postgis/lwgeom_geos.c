@@ -34,6 +34,7 @@
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/numeric.h"
+#include "catalog/pg_type.h"
 
 #if POSTGIS_PGSQL_VERSION >= 93
 #include "access/htup_details.h"
@@ -105,6 +106,7 @@ Datum ST_BuildArea(PG_FUNCTION_ARGS);
 Datum ST_DelaunayTriangles(PG_FUNCTION_ARGS);
 
 Datum pgis_union_geometry_array(PG_FUNCTION_ARGS);
+Datum create_weights_garray(PG_FUNCTION_ARGS);
 
 /*
 ** Prototypes end
@@ -320,12 +322,12 @@ Datum pgis_union_geometry_array(PG_FUNCTION_ARGS)
 
 	array = PG_GETARG_ARRAYTYPE_P(0);
 	nelems = ArrayGetNItems(ARR_NDIM(array), ARR_DIMS(array));
-	
+
 	/* Empty array? Null return */
 	if ( nelems == 0 ) PG_RETURN_NULL();
 
 	/* Quick scan for nulls */
-#if POSTGIS_PGSQL_VERSION >= 95	
+#if POSTGIS_PGSQL_VERSION >= 95
 	iterator = array_create_iterator(array, 0, NULL);
 #else
 	iterator = array_create_iterator(array, 0);
@@ -335,20 +337,20 @@ Datum pgis_union_geometry_array(PG_FUNCTION_ARGS)
 		/* Skip null array items */
 		if ( isnull )
 			continue;
-		
+
 		count++;
 	}
 	array_free_iterator(iterator);
-	
-	
+
+
 	/* All-nulls? Return null */
 	if ( count == 0 )
 		PG_RETURN_NULL();
-	
+
 	/* One geom, good geom? Return it */
 	if ( count == 1 && nelems == 1 )
 		PG_RETURN_POINTER((GSERIALIZED *)(ARR_DATA_PTR(array)));
-	
+
 	/* Ok, we really need GEOS now ;) */
 	initGEOS(lwpgnotice, lwgeom_geos_error);
 
@@ -362,7 +364,7 @@ Datum pgis_union_geometry_array(PG_FUNCTION_ARGS)
 	** We need to convert the array of GSERIALIZED into a GEOS collection.
 	** First make an array of GEOS geometries.
 	*/
-#if POSTGIS_PGSQL_VERSION >= 95	
+#if POSTGIS_PGSQL_VERSION >= 95
 	iterator = array_create_iterator(array, 0, NULL);
 #else
 	iterator = array_create_iterator(array, 0);
@@ -374,7 +376,7 @@ Datum pgis_union_geometry_array(PG_FUNCTION_ARGS)
 		/* Skip null array items */
 		if ( isnull )
 			continue;
-		
+
 		gser_in = (GSERIALIZED *)DatumGetPointer(value);
 
 		/* Check for SRID mismatch in array elements */
@@ -979,17 +981,17 @@ Datum ST_GeneratePoints(PG_FUNCTION_ARGS)
 
 	gser_input = PG_GETARG_GSERIALIZED_P(0);
 	npoints = DatumGetInt32(DirectFunctionCall1(numeric_int4, PG_GETARG_DATUM(1)));
-	
+
 	/* Smartasses get nothing back */
 	if (npoints < 0)
 		PG_RETURN_NULL();
-	
+
 	/* Types get checked in the code, we'll keep things small out there */
 	lwgeom_input = lwgeom_from_gserialized(gser_input);
 	lwgeom_result = (LWGEOM*)lwgeom_to_points(lwgeom_input, npoints);
 	lwgeom_free(lwgeom_input);
 	PG_FREE_IF_COPY(gser_input, 0);
-	
+
 	/* Return null as null */
 	if (!lwgeom_result)
 		PG_RETURN_NULL();
@@ -1054,7 +1056,7 @@ Datum ST_OffsetCurve(PG_FUNCTION_ARGS)
 	lwgeom_input = lwgeom_from_gserialized(gser_input);
 	if ( ! lwgeom_input )
 		lwpgerror("ST_OffsetCurve: lwgeom_from_gserialized returned NULL");
-	
+
 	/* For empty inputs, just echo them back */
 	if ( lwgeom_is_empty(lwgeom_input) )
 		PG_RETURN_POINTER(gser_input);
@@ -1290,7 +1292,7 @@ Datum centroid(PG_FUNCTION_ARGS)
 		lwpoint_free(lwp);
 		PG_RETURN_POINTER(result);
 	}
-	
+
 	type = gserialized_get_type(geom) ;
 	/* Converting curve geometry to linestring if necessary*/
 	if(type == CIRCSTRINGTYPE || type == COMPOUNDTYPE )
@@ -1301,7 +1303,7 @@ Datum centroid(PG_FUNCTION_ARGS)
 		lwgeom_free(igeom);
 		if (linear_geom == NULL)
 			PG_RETURN_NULL();
-		
+
 		geom = geometry_serialize(linear_geom);
 		lwgeom_free(linear_geom);
 	}
@@ -1409,7 +1411,7 @@ Datum ST_ClipByBox2d(PG_FUNCTION_ARGS)
 	result = geometry_serialize(lwresult) ;
 	lwgeom_free(lwresult) ;
 	PG_RETURN_POINTER(result);
-	
+
 #endif /* POSTGIS_GEOS_VERSION >= 35 */
 }
 
@@ -1760,7 +1762,7 @@ Datum contains(PG_FUNCTION_ARGS)
 		GSERIALIZED* gpoint = is_point(geom1) ? geom1 : geom2;
 		RTREE_POLY_CACHE* cache = GetRtreeCache(fcinfo, gpoly);
 		int retval;
-	
+
 		POSTGIS_DEBUG(3, "Point in Polygon test requested...short-circuiting.");
 		if (gserialized_get_type(gpoint) == POINTTYPE)
 		{
@@ -1772,7 +1774,7 @@ Datum contains(PG_FUNCTION_ARGS)
 		}
 		else if (gserialized_get_type(gpoint) == MULTIPOINTTYPE)
 		{
-			LWMPOINT* mpoint = lwgeom_as_lwmpoint(lwgeom_from_gserialized(gpoint));	
+			LWMPOINT* mpoint = lwgeom_as_lwmpoint(lwgeom_from_gserialized(gpoint));
 			uint32_t i;
 			int found_completely_inside = LW_FALSE;
 
@@ -2152,7 +2154,7 @@ Datum coveredby(PG_FUNCTION_ARGS)
 		}
 		else if (gserialized_get_type(gpoint) == MULTIPOINTTYPE)
 		{
-			LWMPOINT* mpoint = lwgeom_as_lwmpoint(lwgeom_from_gserialized(gpoint));	
+			LWMPOINT* mpoint = lwgeom_as_lwmpoint(lwgeom_from_gserialized(gpoint));
 			uint32_t i;
 
 			retval = LW_TRUE;
@@ -2342,7 +2344,7 @@ Datum geos_intersects(PG_FUNCTION_ARGS)
 		}
 		else if (gserialized_get_type(gpoint) == MULTIPOINTTYPE)
 		{
-			LWMPOINT* mpoint = lwgeom_as_lwmpoint(lwgeom_from_gserialized(gpoint));	
+			LWMPOINT* mpoint = lwgeom_as_lwmpoint(lwgeom_from_gserialized(gpoint));
 			uint32_t i;
 
 			retval = LW_FALSE;
@@ -2905,7 +2907,7 @@ uint32_t array_nelems_not_null(ArrayType* array) {
     bool isnull;
     uint32_t nelems_not_null = 0;
 
-#if POSTGIS_PGSQL_VERSION >= 95	
+#if POSTGIS_PGSQL_VERSION >= 95
 	iterator = array_create_iterator(array, 0, NULL);
 #else
 	iterator = array_create_iterator(array, 0);
@@ -3028,7 +3030,7 @@ GEOSGeometry** ARRAY2GEOS(ArrayType* array, uint32_t nelems, int* is3d, int* sri
 			}
 			return NULL;
 		}
-       	
+
         i++;
 	}
 
@@ -3541,7 +3543,7 @@ Datum ST_Voronoi(PG_FUNCTION_ARGS)
 #else /* POSTGIS_GEOS_VERSION >= 35 */
 	GSERIALIZED* input;
 	GSERIALIZED* clip;
-	GSERIALIZED* result;	
+	GSERIALIZED* result;
 	LWGEOM* lwgeom_input;
 	LWGEOM* lwgeom_result;
 	double tolerance;
@@ -3575,7 +3577,7 @@ Datum ST_Voronoi(PG_FUNCTION_ARGS)
 		PG_RETURN_NULL();
 	}
 	return_polygons = PG_GETARG_BOOL(3);
-	
+
 	/* Read our clipping envelope, if applicable. */
 	custom_clip_envelope = !PG_ARGISNULL(1);
 	if (custom_clip_envelope) {
@@ -3716,4 +3718,136 @@ Datum ST_MinimumClearanceLine(PG_FUNCTION_ARGS)
 	PG_FREE_IF_COPY(input, 0);
 	PG_RETURN_POINTER(result);
 #endif
+}
+
+/******************************************
+ *
+ * 'create_weights_garray'
+ *
+ * Returns the minimum clearance line of a geometry.
+ *
+ ******************************************/
+ PG_FUNCTION_INFO_V1(create_weights_garray);
+Datum create_weights_garray(PG_FUNCTION_ARGS)
+{
+	/* Null array, null geometry (should be empty?) */
+	if (PG_ARGISNULL(0))
+		PG_RETURN_NULL();
+
+	ArrayType* array = PG_GETARG_ARRAYTYPE_P(0);
+
+	double tolerance = PG_GETARG_FLOAT8(1);
+
+	if (tolerance < 0)
+	{
+		lwpgerror("Tolerance must be a positive number.");
+		PG_RETURN_NULL();
+	}
+
+	uint32 nelems = array_nelems_not_null(array);
+
+	POSTGIS_DEBUGF(3, "create_weights_garray: number of non-null elements: %d", nelems);
+
+	if ( nelems == 0 )
+  {
+    errmsg("create_weights_garray: number of non-null elements is zero!");
+    PG_RETURN_NULL();
+  }
+
+  /* Ok, we really need geos now ;) */
+	initGEOS(lwpgnotice, lwgeom_geos_error);
+  int is3d = 0;
+  int srid=SRID_UNKNOWN;
+  LWGEOM** lw_inputs = ARRAY2LWGEOM(array, nelems, &is3d, &srid);
+
+  if (!lw_inputs)
+	{
+		PG_RETURN_NULL();
+	}
+
+  LWGEOM** lw_centroids = lwalloc(nelems * sizeof(LWGEOM*));
+
+  uint32_t i   = 0;
+  uint32_t j   = 0;
+
+  for (i = 0; i < nelems; i++)
+	{
+		lw_centroids[i] = lwgeom_centroid(lw_inputs[i]);
+	}
+
+  uint32_t* result_ids = lwalloc( 3 * sizeof(uint32_t));
+  uint32_t* result_nbrs = lwalloc( 3 * sizeof(uint32_t));
+  double*   result_dist = lwalloc( 3 * sizeof(double));
+  elog(NOTICE, "before %d, %d", result_ids, &result_ids);
+  int result_size = 0;
+  result_size = create_weights_threshold(lw_centroids, nelems, tolerance, &result_ids, &result_nbrs, &result_dist);
+
+  elog(NOTICE, "num: %d; size: %d, val: %d", nelems, result_size, result_ids[0]);
+
+  lwfree(lw_inputs);
+  lwfree(lw_centroids);
+
+  int n_col = 3;
+  int n_row = result_size;
+
+  Datum* _values = palloc(sizeof(Datum) * n_col * n_row);
+  bool*  _nodata = palloc(sizeof(bool) * n_col * n_row);
+
+  if (_values == NULL || _nodata == NULL)
+  {
+    elog(ERROR, "create_weights_garray: Could not allocate memory for values array");
+    PG_RETURN_NULL();
+  }
+
+  int n_dim = 2;
+  int dims[2] = {n_row, n_col};
+  int lbs[2] = {1,1};
+
+  for (i=0; i<n_row; i++)
+  {
+    j = i * n_col;
+    _nodata[j+0] = false;
+    _values[j+0] = Float8GetDatum(result_ids[i]);
+    //_values[j+0] = Float8GetDatum(1);
+
+    _nodata[j+1] = false;
+    _values[j+1] = Float8GetDatum(result_nbrs[i]);
+    //_values[j+1] = Float8GetDatum(2);
+
+    _nodata[j+2] = false;
+    _values[j+2] = Float8GetDatum((float8)result_dist[i]);
+    //_values[j+2] = Float8GetDatum(3);
+  }
+
+  lwfree(result_ids);
+  lwfree(result_nbrs);
+  lwfree(result_dist);
+
+  elog(NOTICE, "after assignment");
+
+  int16       typlen;
+  bool        typbyval;
+  char        typalign;
+  // info about the type of item in array
+  get_typlenbyvalalign(FLOAT8OID, &typlen, &typbyval, &typalign);
+
+  ArrayType* result = construct_md_array(
+    _values, _nodata, n_dim, dims, lbs, FLOAT8OID,
+    typlen, typbyval, typalign
+  );
+
+  pfree(_values);
+  pfree(_nodata);
+
+  //pfree(result_ids);
+  //pfree(result_nbrs);
+  //pfree(result_dist);
+
+	if (!result)
+	{
+		elog(ERROR, "createWeights: Error constructing return-array");
+		PG_RETURN_NULL();
+	}
+
+	 PG_RETURN_ARRAYTYPE_P(result);
 }
